@@ -1,0 +1,7 @@
+numpy>=1.26
+scipy>=1.11
+sounddevice>=0.4.7
+PySide6-Essentials>=6.7
+soundfile>=0.12
+pyinstaller>=6.6
+pytest>=8
