@@ -14,11 +14,7 @@ jobs:
       - run: python -m pytest -q
       - name: Check licence public key is committed
         shell: bash
-        run: |
-          if [ ! -f assets/license_public.pem ]; then
-            echo "assets/license_public.pem missing: run 'python -m server.manage init' and commit it"
-            exit 1
-          fi
+        run: test -f assets/license_public.pem || (echo "assets/license_public.pem missing: run 'python -m server.manage init' and commit it" && exit 1)
       - run: pyinstaller build.spec --noconfirm
       - run: choco install innosetup -y
       - run: iscc installer.iss

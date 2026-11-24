@@ -1,6 +1,7 @@
 """Audio device discovery. Prefers WASAPI on Windows to avoid duplicate entries."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 
@@ -56,3 +57,18 @@ def default_device(kind: str) -> Device | None:
 
 def virtual_cable_present() -> bool:
     return find(outputs(), "CABLE Input", "CABLE-A Input", "VB-Audio") is not None
+
+
+_CABLE = re.compile(r"cable(?:[- ]([a-d])(?![a-z0-9]))?", re.I)
+
+
+def cable_id(name: str) -> str | None:
+    """None = not a VB cable; "" = the single unnamed cable; "A"/"B"/... = that cable.
+    Both ends of one cable (CABLE-A Input / CABLE-A Output) return the same id."""
+    m = _CABLE.search(name or "")
+    return None if not m else (m.group(1) or "").upper()
+
+
+def is_virtual(name: str) -> bool:
+    n = (name or "").lower()
+    return cable_id(name) is not None or any(k in n for k in ("vb-audio", "voicemeeter", "virtual", "nomsindo"))

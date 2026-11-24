@@ -6,78 +6,93 @@ import sys
 import threading
 import time
 import webbrowser
-from collections import deque
 
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import (QAction, QBrush, QColor, QIcon, QLinearGradient, QPainter, QPen,
-                           QPixmap)
-from PySide6.QtWidgets import (QApplication, QDialog, QLineEdit, QMessageBox, QButtonGroup, QCheckBox, QComboBox, QFrame,
-                               QHBoxLayout, QLabel, QMainWindow, QMenu, QPushButton, QSlider,
-                               QStackedWidget, QSystemTrayIcon, QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtGui import QAction, QColor, QFont, QIcon, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QFrame, QHBoxLayout, QLabel,
+                               QLineEdit, QMainWindow, QMenu, QMessageBox, QPushButton, QScrollArea, QStackedWidget,
+                               QSystemTrayIcon, QToolButton, QVBoxLayout, QWidget)
 
-from . import APP_NAME, __version__, devices
+from . import APP_NAME, __version__, devices, safety
 from .config import Channel, Settings
 from .licensing import LicenceClient, LicenceError
 from .pipeline import Pipeline
-
-GREEN, TEAL, TEXT, MUTED = "#19e3a1", "#1fc8c0", "#dff3f0", "#7fa3a0"
-
-STYLE = f"""
-* {{ font-family: 'Segoe UI', 'Inter', sans-serif; color: {TEXT}; font-size: 12px; }}
-QMainWindow, QWidget#root {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #0a1214, stop:1 #10262a); }}
-QFrame#sidebar {{ background: rgba(8,16,18,200); border-right: 1px solid #1a3033; }}
-QToolButton#nav {{ background: transparent; border: none; border-left: 3px solid transparent;
-    color: {MUTED}; padding: 10px 4px; font-size: 11px; }}
-QToolButton#nav:checked {{ background: rgba(25,227,161,0.10); border-left: 3px solid {GREEN}; color: {TEXT}; }}
-QToolButton#nav:hover {{ background: rgba(255,255,255,0.05); }}
-QFrame#panel, QFrame#card {{ background: rgba(14,28,31,225); border: 1px solid #1f4549; border-radius: 12px; }}
-QLabel {{ background: transparent; }}
-QLabel#appname {{ font-size: 20px; font-weight: 600; }}
-QLabel#ptitle {{ font-size: 14px; font-weight: 600; }}
-QLabel#muted {{ color: {MUTED}; }}
-QLabel#pill {{ border: 1px solid {GREEN}; border-radius: 12px; padding: 4px 14px; color: {GREEN}; font-weight: 700;
-    background: rgba(25,227,161,0.10); }}
-QLabel#pill[idle="true"] {{ border-color: #3a5558; color: {MUTED}; background: rgba(255,255,255,0.04); }}
-QFrame#statusbar {{ background: rgba(6,12,14,230); border-top: 1px solid #1a3033; }}
-QLabel#status {{ color: {MUTED}; font-size: 11px; }}
-QPushButton#power {{ background: #1b2b2e; border: 1px solid #2b4448; border-radius: 8px; padding: 8px 18px;
-    font-weight: 700; color: {MUTED}; min-width: 70px; }}
-QPushButton#power:checked {{ background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #22e8a8, stop:1 #12b985);
-    border: 1px solid #5bf3c4; color: #04251a; }}
-QPushButton#seg {{ background: #0e1b1d; border: 1px solid #2b4448; padding: 6px 14px; color: {MUTED}; }}
-QPushButton#seg:checked {{ background: #274a4d; color: {TEXT}; font-weight: 600; }}
-QPushButton#segL {{ border-top-left-radius: 14px; border-bottom-left-radius: 14px; }}
-QPushButton#segR {{ border-top-right-radius: 14px; border-bottom-right-radius: 14px; }}
-QPushButton#link {{ background: #16282b; border: 1px solid #2b4448; border-radius: 6px; padding: 4px 12px; font-size: 11px; }}
-QPushButton#link:hover {{ background: #1f3a3e; }}
-QPushButton#plain {{ background: #1b3a3d; border: 1px solid #2f5a5e; border-radius: 8px; padding: 7px 14px; }}
-QPushButton#plain:hover {{ background: #24494d; }}
-QLineEdit {{ background: #0b1517; border: 1px solid #2b4448; border-radius: 6px; padding: 7px 9px; }}
-QDialog {{ background: #0f1e21; }}
-QLabel#lic {{ color: {MUTED}; border: 1px solid #2b4448; border-radius: 10px; padding: 3px 12px; margin-right: 10px; }}
-QLabel#lic[warn="true"] {{ color: #ffb020; border-color: #ffb020; }}
-QLabel#err {{ color: #ff8a8a; }}
-QComboBox {{ background: #0b1517; border: 1px solid #2b4448; border-radius: 6px; padding: 6px 8px; }}
-QComboBox QAbstractItemView {{ background: #0b1517; selection-background-color: #1f6f66; border: 1px solid #2b4448; }}
-QCheckBox {{ spacing: 8px; }}
-QCheckBox::indicator {{ width: 16px; height: 16px; border-radius: 4px; border: 1px solid #2f5a5e; background: #0b1517; }}
-QCheckBox::indicator:checked {{ background: {GREEN}; border-color: #5bf3c4; }}
-QSlider::groove:horizontal {{ height: 6px; background: #1c3033; border-radius: 3px; }}
-QSlider::sub-page:horizontal {{ background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #7a5af8, stop:0.5 #3b82f6, stop:1 {TEAL});
-    border-radius: 3px; }}
-QSlider::handle:horizontal {{ background: #f4f8ff; width: 16px; height: 16px; margin: -6px 0; border-radius: 8px;
-    border: 2px solid #9ec5ff; }}
-"""
-
+from .ui_widgets import (AMBER, CYAN, MINT, MUTED, RED, TEXT, Backdrop, GlassPanel, GlowSlider, PowerButton,
+                         Segmented, VuMeter, Waveform, rgba)
 
 def res(rel: str) -> str:
     base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     return os.path.join(base, rel)
 
 
+STYLE_TMPL = f"""
+* {{ font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Inter', sans-serif; color: {TEXT}; font-size: 12px; }}
+QLabel {{ background: transparent; }}
+QLabel#appname {{ font-size: 24px; font-weight: 600; letter-spacing: 0.5px; }}
+QLabel#tagline {{ color: {MUTED}; font-size: 9px; font-weight: 600; letter-spacing: 2.4px; }}
+QLabel#ptitle {{ font-size: 15px; font-weight: 600; }}
+QLabel#route {{ color: {MUTED}; font-size: 11px; }}
+QLabel#caps {{ color: {MUTED}; font-size: 9px; font-weight: 700; letter-spacing: 1.8px; }}
+QLabel#value {{ color: {MINT}; font-size: 26px; font-weight: 300; }}
+QLabel#muted {{ color: {MUTED}; }}
+QLabel#warn {{ color: {AMBER}; background: rgba(255,176,32,0.09); border: 1px solid rgba(255,176,32,0.35);
+    border-radius: 8px; padding: 7px 10px; }}
+QLabel#err {{ color: #ff8a8a; }}
+QLabel#chip {{ border: 1px solid rgba(143,255,232,0.22); border-radius: 11px; padding: 3px 12px; color: {MUTED};
+    background: rgba(255,255,255,0.03); font-size: 11px; }}
+QLabel#chip[warn="true"] {{ color: {AMBER}; border-color: rgba(255,176,32,0.5); }}
+QLabel#pill {{ border: 1px solid rgba(42,245,181,0.6); border-radius: 13px; padding: 4px 15px; color: {MINT};
+    font-weight: 700; letter-spacing: 1.4px; background: rgba(42,245,181,0.10); font-size: 11px; }}
+QLabel#pill[idle="true"] {{ border-color: rgba(143,255,232,0.2); color: {MUTED}; background: rgba(255,255,255,0.03); }}
+QFrame#sidebar {{ background: rgba(4,9,11,0.62); border-right: 1px solid rgba(143,255,232,0.09); }}
+QFrame#statusbar {{ background: rgba(3,7,9,0.80); border-top: 1px solid rgba(143,255,232,0.09); }}
+QLabel#status {{ color: {MUTED}; font-size: 11px; }}
+QToolButton#nav {{ background: transparent; border: none; border-left: 3px solid transparent; color: {MUTED};
+    padding: 10px 2px 8px 2px; font-size: 11px; }}
+QToolButton#nav:hover {{ background: rgba(255,255,255,0.04); color: {TEXT}; }}
+QToolButton#nav:checked {{ color: {TEXT}; border-left: 3px solid {MINT};
+    background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 rgba(42,245,181,0.16), stop:1 rgba(42,245,181,0.0)); }}
+QPushButton#plain {{ background: rgba(255,255,255,0.05); border: 1px solid rgba(143,255,232,0.22); border-radius: 9px;
+    padding: 8px 16px; font-weight: 600; }}
+QPushButton#plain:hover {{ background: rgba(42,245,181,0.12); border-color: rgba(42,245,181,0.5); }}
+QPushButton#plain:disabled {{ color: #4d6a67; }}
+QPushButton#link {{ background: rgba(255,255,255,0.05); border: 1px solid rgba(143,255,232,0.2); border-radius: 7px;
+    padding: 4px 12px; font-size: 11px; }}
+QPushButton#link:hover {{ background: rgba(42,245,181,0.12); }}
+QLineEdit, QComboBox {{ background: rgba(3,8,10,0.75); border: 1px solid rgba(143,255,232,0.18); border-radius: 8px; padding: 7px 10px; }}
+QLineEdit:focus, QComboBox:focus {{ border-color: rgba(42,245,181,0.65); }}
+QComboBox::drop-down {{ border: none; width: 26px; }}
+QComboBox::down-arrow {{ image: url(%ARROW%); width: 14px; height: 14px; }}
+QComboBox QAbstractItemView {{ background: #0a1619; border: 1px solid rgba(143,255,232,0.25); selection-background-color: #1d6b62; outline: 0; }}
+QCheckBox {{ spacing: 10px; background: transparent; }}
+QCheckBox::indicator {{ width: 17px; height: 17px; border-radius: 5px; border: 1px solid rgba(143,255,232,0.35); background: rgba(3,8,10,0.75); }}
+QCheckBox::indicator:checked {{ background: {MINT}; border-color: #8dffe0; }}
+QDialog {{ background: #0a1619; }}
+QScrollArea {{ background: transparent; border: none; }}
+QScrollArea > QWidget > QWidget {{ background: transparent; }}
+QScrollBar:vertical {{ background: transparent; width: 10px; margin: 4px 2px; }}
+QScrollBar::handle:vertical {{ background: rgba(143,255,232,0.25); border-radius: 3px; min-height: 30px; }}
+QScrollBar::handle:vertical:hover {{ background: rgba(42,245,181,0.5); }}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
+QToolTip {{ background: #0a1619; color: {TEXT}; border: 1px solid rgba(143,255,232,0.3); padding: 5px; }}
+"""
+
+
+
+
+STYLE = STYLE_TMPL.replace("%ARROW%", res("assets/chevron.png").replace("\\", "/"))
+
+
 def app_icon() -> QIcon:
     p = res("assets/nomsindo.ico")
     return QIcon(p) if os.path.exists(p) else QIcon()
+
+
+def brand_pixmap(px: int) -> QPixmap:
+    pm = QPixmap(res("assets/icon_512.png")).scaled(px * 2, px * 2, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    pm.setDevicePixelRatio(2.0)
+    return pm
 
 
 def pretty(name: str) -> str:
@@ -87,118 +102,55 @@ def pretty(name: str) -> str:
     return re.sub(r"\s*\(.*?\)\s*", "", name or "").strip() or "-"
 
 
-def _pct_db(db: float) -> float:
-    return max(0.0, min(1.0, (db + 60.0) / 60.0))
+def nav_icon(kind: str) -> QIcon:
+    import math
+    icon = QIcon()
+    for color, state in (("#7aa09c", QIcon.Off), (MINT, QIcon.On)):
+        pm = QPixmap(60, 60); pm.setDevicePixelRatio(2.0); pm.fill(Qt.transparent)
+        p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(QPen(QColor(color), 1.9, Qt.SolidLine, Qt.RoundCap)); p.setBrush(Qt.NoBrush)
+        if kind == "routing":
+            for x, y in ((8, 11), (15, 19), (22, 9)):
+                p.drawLine(x, 5, x, 25); p.setBrush(QColor(color)); p.drawEllipse(QPointF(x, y), 2.8, 2.8); p.setBrush(Qt.NoBrush)
+        elif kind == "devices":
+            p.drawRoundedRect(QRectF(11, 3.5, 8, 13), 4, 4); p.drawArc(QRectF(7, 8, 16, 14), 200 * 16, 140 * 16)
+            p.drawLine(15, 22, 15, 26); p.drawLine(11, 26, 19, 26)
+        else:
+            p.drawEllipse(QPointF(15, 15), 5, 5)
+            for i in range(8):
+                a = i * math.pi / 4
+                p.drawLine(QPointF(15 + 8 * math.cos(a), 15 + 8 * math.sin(a)), QPointF(15 + 11 * math.cos(a), 15 + 11 * math.sin(a)))
+        p.end(); icon.addPixmap(pm, QIcon.Normal, state)
+    return icon
 
 
-def nav_icon(kind: str, color: str) -> QIcon:
-    pm = QPixmap(30, 30); pm.fill(Qt.transparent)
+def badge(kind: str) -> QLabel:
+    """Round icon badge for a panel header."""
+    pm = QPixmap(80, 80); pm.setDevicePixelRatio(2.0); pm.fill(Qt.transparent)
     p = QPainter(pm); p.setRenderHint(QPainter.Antialiasing)
-    pen = QPen(QColor(color), 2, Qt.SolidLine, Qt.RoundCap); p.setPen(pen)
-    if kind == "routing":
-        for x, y in ((8, 11), (15, 19), (22, 9)):
-            p.drawLine(x, 5, x, 25); p.setBrush(QColor(color)); p.drawEllipse(QPointF(x, y), 3, 3)
-    elif kind == "devices":
-        p.setBrush(Qt.NoBrush); p.drawRoundedRect(QRectF(11, 4, 8, 13), 4, 4)
-        p.drawArc(QRectF(7, 8, 16, 14), 200 * 16, 140 * 16); p.drawLine(15, 22, 15, 26); p.drawLine(11, 26, 19, 26)
+    p.setBrush(rgba(MINT, 0.10)); p.setPen(QPen(rgba(MINT, 0.4), 1)); p.drawEllipse(QRectF(1, 1, 38, 38))
+    p.setPen(QPen(QColor(MINT), 2, Qt.SolidLine, Qt.RoundCap)); p.setBrush(Qt.NoBrush)
+    if kind == "mic":
+        p.drawRoundedRect(QRectF(16, 9, 8, 14), 4, 4); p.drawArc(QRectF(12, 14, 16, 12), 200 * 16, 140 * 16)
+        p.drawLine(20, 26, 20, 30)
     else:
-        p.setBrush(Qt.NoBrush); p.drawEllipse(QPointF(15, 15), 5, 5)
-        import math
-        for i in range(8):
-            a = i * math.pi / 4
-            p.drawLine(QPointF(15 + 8 * math.cos(a), 15 + 8 * math.sin(a)),
-                       QPointF(15 + 11 * math.cos(a), 15 + 11 * math.sin(a)))
+        p.drawArc(QRectF(10, 10, 20, 20), 0, 180 * 16); p.drawRoundedRect(QRectF(9, 19, 5, 9), 2, 2); p.drawRoundedRect(QRectF(26, 19, 5, 9), 2, 2)
     p.end()
-    return QIcon(pm)
+    lab = QLabel(); lab.setPixmap(pm); lab.setFixedSize(40, 40)
+    return lab
 
 
-class Waveform(QWidget):
-    """Raw input flows in from the left, cleaned audio flows out to the right of the playhead."""
-    STEP = 4
-
-    def __init__(self):
-        super().__init__()
-        self.setMinimumHeight(110)
-        self.inp = deque([0.0] * 400, maxlen=400)
-        self.out = deque([0.0] * 400, maxlen=400)
-
-    def push(self, a: float, b: float) -> None:
-        self.inp.append(a); self.out.append(b); self.update()
-
-    @staticmethod
-    def _h(v: float) -> float:
-        return min(1.0, (v ** 0.5) * 1.15)
-
-    def paintEvent(self, _):
-        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        w, h = self.width(), self.height(); cy = h / 2
-        bg = QLinearGradient(0, 0, 0, h); bg.setColorAt(0, QColor("#071012")); bg.setColorAt(1, QColor("#0b1b1d"))
-        p.setBrush(QBrush(bg)); p.setPen(QPen(QColor("#1f4549"), 1)); p.drawRoundedRect(QRectF(0.5, 0.5, w - 1, h - 1), 8, 8)
-        p.setPen(QPen(QColor(255, 255, 255, 18), 1)); p.drawLine(6, int(cy), w - 6, int(cy))
-        ph = int(w * 0.58); amp = cy - 8
-        n_left, n_right = ph // self.STEP, (w - ph) // self.STEP
-        for i in range(n_left):
-            v = self._h(self.inp[-1 - i]); x = ph - i * self.STEP
-            c = QColor(235, 240, 255, max(40, 230 - i * 2)); p.setPen(QPen(c, 2, Qt.SolidLine, Qt.RoundCap))
-            p.drawLine(QPointF(x, cy - v * amp - 1), QPointF(x, cy + v * amp + 1))
-        for i in range(n_right):
-            v = self._h(self.out[-1 - i]); x = ph + i * self.STEP
-            t = i / max(1, n_right)
-            c = QColor(int(30 + 10 * t), int(230 - 60 * t), int(170 + 40 * t), max(60, 235 - int(i * 1.6)))
-            p.setPen(QPen(c, 2, Qt.SolidLine, Qt.RoundCap))
-            p.drawLine(QPointF(x, cy - v * amp - 1), QPointF(x, cy + v * amp + 1))
-        p.setPen(QPen(QColor(31, 200, 192, 200), 1)); p.drawLine(ph, 4, ph, h - 4)
-
-
-class VuMeter(QWidget):
-    TICKS = [(0, "0"), (-6, "-6"), (-12, "-12"), (-24, "-24"), (-40, "-40"), (-60, "-60")]
-
-    def __init__(self):
-        super().__init__()
-        self.setFixedWidth(74); self.setMinimumHeight(110)
-        self.lv_in = self.lv_out = 0.0
-
-    def set_levels(self, in_db: float, out_db: float) -> None:
-        self.lv_in, self.lv_out = _pct_db(in_db), _pct_db(out_db); self.update()
-
-    def _bar(self, p: QPainter, x: float, level: float) -> None:
-        h = self.height() - 22; top = 6
-        p.setPen(Qt.NoPen); p.setBrush(QColor("#0a1416")); p.drawRoundedRect(QRectF(x, top, 14, h), 3, 3)
-        g = QLinearGradient(0, top, 0, top + h)
-        g.setColorAt(0, QColor("#ff4d4d")); g.setColorAt(0.22, QColor("#ffd23f")); g.setColorAt(0.45, QColor(GREEN)); g.setColorAt(1, QColor("#0f9f72"))
-        fh = h * level
-        p.setBrush(QBrush(g)); p.drawRoundedRect(QRectF(x, top + h - fh, 14, fh), 3, 3)
-
-    def paintEvent(self, _):
-        p = QPainter(self); p.setRenderHint(QPainter.Antialiasing)
-        self._bar(p, 2, self.lv_in); self._bar(p, self.width() - 16, self.lv_out)
-        h = self.height() - 22; p.setPen(QColor(MUTED)); f = p.font(); f.setPixelSize(9); p.setFont(f)
-        for db, t in self.TICKS:
-            y = 6 + h * (1 - _pct_db(db)); p.drawText(QRectF(16, y - 6, self.width() - 32, 12), Qt.AlignCenter, t)
-        p.drawText(QRectF(0, self.height() - 14, 30, 12), Qt.AlignCenter, "IN")
-        p.drawText(QRectF(self.width() - 32, self.height() - 14, 32, 12), Qt.AlignCenter, "OUT")
-
-
-class TickSlider(QWidget):
-    valueChanged = Signal(int)
-
-    def __init__(self, value: int):
-        super().__init__()
-        lay = QVBoxLayout(self); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
-        self.slider = QSlider(Qt.Horizontal); self.slider.setRange(0, 100); self.slider.setValue(value)
-        self.slider.setTickPosition(QSlider.NoTicks)
-        self.slider.valueChanged.connect(self.valueChanged)
-        self.ticks = QWidget(); self.ticks.setFixedHeight(22); self.ticks.paintEvent = self._paint_ticks
-        lay.addWidget(self.slider); lay.addWidget(self.ticks)
-
-    def _paint_ticks(self, _):
-        p = QPainter(self.ticks); pad = 8; w = self.ticks.width() - 2 * pad
-        f = p.font(); f.setPixelSize(9); p.setFont(f)
-        for v in range(0, 101, 10):
-            x = pad + w * v / 100
-            p.setPen(QPen(QColor("#3a5a5e"), 1)); p.drawLine(QPointF(x, 1), QPointF(x, 5))
-            p.setPen(QColor(MUTED)); tx = min(x, self.ticks.width() - 20)
-            p.drawText(QRectF(tx - 20, 7, 40, 12), Qt.AlignCenter, f"{v}%" if v == 100 else str(v))
+def dark_titlebar(win: QWidget) -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        hwnd = int(win.winId()); on = ctypes.c_int(1)
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(on), 4)      # dark mode caption
+        col = ctypes.c_int(0x0C0905)                                                     # caption colour (BGR)
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 35, ctypes.byref(col), 4)
+    except Exception:
+        pass
 
 
 class ChannelController(QObject):
@@ -207,6 +159,7 @@ class ChannelController(QObject):
     def __init__(self, cfg: Channel, name: str, role: str):
         super().__init__()
         self.cfg, self.role, self.pipe = cfg, role, Pipeline(name)
+        self.other: "ChannelController | None" = None
         self.in_box, self.out_box = QComboBox(), QComboBox()
         self.refresh()
         for b in (self.in_box, self.out_box):
@@ -214,9 +167,8 @@ class ChannelController(QObject):
 
     def _defaults(self, ins, outs):
         if self.role == "mic":
-            return (devices.default_device("input"),
-                    devices.find(outs, "CABLE-A Input", "CABLE Input"))
-        return (devices.find(ins, "CABLE-B Output", "CABLE-A Output"), devices.default_device("output"))
+            return (devices.default_device("input"), devices.find(outs, "CABLE-A Input", "CABLE Input"))
+        return (devices.find(ins, "CABLE-B Output"), devices.default_device("output"))
 
     def refresh(self) -> None:
         try:
@@ -236,22 +188,33 @@ class ChannelController(QObject):
         self.changed.emit()
 
     def title(self) -> str:
-        return f"{pretty(self.in_box.currentText())}  ->  {pretty(self.out_box.currentText())}"
+        return f"{pretty(self.in_box.currentText())}  →  {pretty(self.out_box.currentText())}"
 
     @property
     def running(self) -> bool:
         return self.pipe.status == "running"
+
+    def problem(self) -> str | None:
+        if self.in_box.currentData() is None or self.out_box.currentData() is None or self.other is None:
+            return None
+        o = self.other
+        return safety.check(self.role, self.in_box.currentText(), self.out_box.currentText(),
+                            o.in_box.currentText(), o.out_box.currentText())
 
     def _dev_changed(self) -> None:
         self.cfg.input_name, self.cfg.output_name = self.in_box.currentText(), self.out_box.currentText()
         if self.running:
             self.start()
         self.changed.emit()
+        if self.other:
+            self.other.changed.emit()
 
     def start(self) -> None:
         a, b = self.in_box.currentData(), self.out_box.currentData()
         if a is None or b is None:
-            self.pipe.status = "select devices first"; self.changed.emit(); return
+            self.pipe.stop(); self.pipe.status = "select devices first"; self.cfg.enabled = False; self.changed.emit(); return
+        if self.problem():                       # never start a routing that would feed back
+            self.pipe.stop(); self.pipe.status = "blocked"; self.cfg.enabled = False; self.changed.emit(); return
         self.pipe.set_strength(self.cfg.strength / 100.0); self.pipe.set_mode(self.cfg.mode)
         self.pipe.start(a, b)
         self.cfg.enabled = self.running
@@ -262,42 +225,47 @@ class ChannelController(QObject):
         self.pipe.stop(); self.cfg.enabled = False; self.changed.emit()
 
 
-class ChannelPanel(QFrame):
-    def __init__(self, ctrl: ChannelController):
-        super().__init__()
-        self.setObjectName("panel"); self.ctrl = ctrl
-        lay = QVBoxLayout(self); lay.setContentsMargins(16, 12, 16, 12); lay.setSpacing(8)
-        self.title = QLabel(); self.title.setObjectName("ptitle"); lay.addWidget(self.title)
+class ChannelPanel(GlassPanel):
+    def __init__(self, ctrl: ChannelController, title: str, kind: str):
+        super().__init__(18)
+        self.setMinimumHeight(300)
+        self.ctrl = ctrl
+        lay = QVBoxLayout(self); lay.setContentsMargins(20, 16, 20, 16); lay.setSpacing(10)
 
-        row = QHBoxLayout(); row.setSpacing(10)
+        head = QHBoxLayout(); head.setSpacing(12)
+        head.addWidget(badge(kind))
+        tl = QVBoxLayout(); tl.setSpacing(0)
+        self.title = QLabel(title); self.title.setObjectName("ptitle")
+        self.route = QLabel(); self.route.setObjectName("route")
+        tl.addWidget(self.title); tl.addWidget(self.route); head.addLayout(tl); head.addStretch(1)
+        self.voice = QLabel("● VOICE"); self.voice.setObjectName("caps")
+        self.live = QLabel(); self.live.setObjectName("caps")
+        head.addWidget(self.voice); head.addSpacing(10); head.addWidget(self.live)
+        lay.addLayout(head)
+
+        mid = QHBoxLayout(); mid.setSpacing(12)
         self.wave, self.vu = Waveform(), VuMeter()
-        row.addWidget(self.wave, 1); row.addWidget(self.vu); lay.addLayout(row, 1)
+        mid.addWidget(self.wave, 1); mid.addWidget(self.vu); lay.addLayout(mid, 1)
 
-        top = QHBoxLayout()
-        lbl = QLabel("Noise Removal Strength"); self.pct = QLabel(f"{ctrl.cfg.strength}%")
-        top.addWidget(lbl); top.addStretch(1); top.addWidget(self.pct)
-        mode_lbl = QLabel("Mode"); top.addSpacing(30); top.addWidget(mode_lbl)
-        lay.addLayout(top)
+        self.warn = QLabel(); self.warn.setObjectName("warn"); self.warn.setWordWrap(True); self.warn.setMinimumHeight(58); self.warn.hide()
+        lay.addWidget(self.warn)
 
-        bot = QHBoxLayout(); bot.setSpacing(14)
-        self.slider = TickSlider(ctrl.cfg.strength); bot.addWidget(self.slider, 1)
-        seg = QHBoxLayout(); seg.setSpacing(0)
-        self.b_std, self.b_str = QPushButton("Standard"), QPushButton("Strong")
-        for b, nm in ((self.b_std, "segL"), (self.b_str, "segR")):
-            b.setCheckable(True); b.setObjectName("seg"); b.setProperty("class", nm); seg.addWidget(b)
-        self.b_std.setObjectName("seg"); self.b_str.setObjectName("seg")
-        self.b_std.setStyleSheet("border-top-left-radius:14px;border-bottom-left-radius:14px;")
-        self.b_str.setStyleSheet("border-top-right-radius:14px;border-bottom-right-radius:14px;")
-        grp = QButtonGroup(self); grp.setExclusive(True); grp.addButton(self.b_std); grp.addButton(self.b_str)
-        (self.b_std if ctrl.cfg.mode == 1 else self.b_str).setChecked(True)
-        bot.addLayout(seg)
-        self.power = QPushButton("ACTIVE"); self.power.setObjectName("power"); self.power.setCheckable(True)
-        bot.addWidget(self.power); lay.addLayout(bot)
-
-        self.err = QLabel(""); self.err.setObjectName("muted"); lay.addWidget(self.err)
+        bot = QHBoxLayout(); bot.setSpacing(18)
+        nb = QVBoxLayout(); nb.setSpacing(0)
+        nr = QHBoxLayout(); cap = QLabel("NOISE REMOVAL"); cap.setObjectName("caps")
+        self.pct = QLabel(f"{ctrl.cfg.strength}%"); self.pct.setObjectName("value")
+        nr.addWidget(cap); nr.addStretch(1); nr.addWidget(self.pct)
+        self.slider = GlowSlider(ctrl.cfg.strength)
+        nb.addLayout(nr); nb.addWidget(self.slider); bot.addLayout(nb, 1)
+        mb = QVBoxLayout(); mb.setSpacing(6)
+        mcap = QLabel("MODE"); mcap.setObjectName("caps")
+        self.mode = Segmented(["Standard", "Strong"], 0 if ctrl.cfg.mode == 1 else 1)
+        mb.addWidget(mcap); mb.addWidget(self.mode); mb.addStretch(1); bot.addLayout(mb)
+        self.power = PowerButton(); bot.addWidget(self.power, 0, Qt.AlignVCenter)
+        lay.addLayout(bot)
 
         self.slider.valueChanged.connect(self._strength)
-        self.b_std.clicked.connect(lambda: self._mode(1)); self.b_str.clicked.connect(lambda: self._mode(2))
+        self.mode.changed.connect(lambda i: self._mode(i + 1))
         self.power.clicked.connect(self._toggle)
         ctrl.changed.connect(self.sync); self.sync()
 
@@ -311,33 +279,54 @@ class ChannelPanel(QFrame):
         self.ctrl.stop() if self.ctrl.running else self.ctrl.start()
 
     def sync(self) -> None:
-        self.title.setText(self.ctrl.title())
-        self.power.setChecked(self.ctrl.running)
+        run = self.ctrl.running
+        self.route.setText(self.ctrl.title())
+        self.power.setChecked(run); self.wave.idle = not run; self.set_glow(run)
+        self.live.setText(f"<span style='color:{MINT}'>●</span> LIVE" if run else f"<span style='color:#4d6a67'>●</span> OFF")
+        self.live.setStyleSheet(f"color: {MINT if run else MUTED};")
         st = self.ctrl.pipe.status
-        self.err.setText("" if st in ("running", "stopped") else st.capitalize())
+        msg = self.ctrl.problem() or ("" if st in ("running", "stopped", "blocked") else st[:1].upper() + st[1:])
+        if not msg and st == "blocked":
+            msg = "This routing was stopped to prevent feedback."
+        self.warn.setText(("⚠  " + msg) if msg else ""); self.warn.setVisible(bool(msg))
+        self.wave.update()
 
     def tick(self) -> None:
         a, b = self.ctrl.pipe.take_peaks()
         self.wave.push(a, b)
         self.vu.set_levels(self.ctrl.pipe.level_in_db, self.ctrl.pipe.level_out_db)
+        on = self.ctrl.pipe.speech_prob > 0.5
+        self.voice.setStyleSheet(f"color: {MINT if on else '#3d5b58'};")
+
+
+def section(title: str, hint: str = "") -> tuple[GlassPanel, QVBoxLayout]:
+    f = GlassPanel(16); v = QVBoxLayout(f); v.setContentsMargins(20, 16, 20, 16); v.setSpacing(7)
+    t = QLabel(title); t.setObjectName("ptitle"); v.addWidget(t)
+    if hint:
+        h = QLabel(hint); h.setObjectName("muted"); h.setWordWrap(True); v.addWidget(h)
+    return f, v
 
 
 class DevicesPage(QWidget):
-    def __init__(self, mic: ChannelController, spk: ChannelController, cable_ok):
+    def __init__(self, mic: ChannelController, spk: ChannelController):
         super().__init__()
-        lay = QVBoxLayout(self); lay.setContentsMargins(14, 14, 14, 14); lay.setSpacing(12)
+        lay = QVBoxLayout(self); lay.setContentsMargins(18, 16, 18, 16); lay.setSpacing(12)
         for title, hint, ctrl, l_in, l_out in (
-            ("Microphone path", "Call app microphone = CABLE-A Output", mic, "Your microphone", "Send cleaned voice to (virtual cable input)"),
-            ("Speaker path", "Call app speaker = CABLE-B Input", spk, "Call audio from (virtual cable output)", "Your headphones / speakers")):
-            f = QFrame(); f.setObjectName("card"); v = QVBoxLayout(f); v.setContentsMargins(16, 12, 16, 14); v.setSpacing(6)
-            t = QLabel(title); t.setObjectName("ptitle"); h = QLabel(hint); h.setObjectName("muted")
-            v.addWidget(t); v.addWidget(h); v.addWidget(QLabel(l_in)); v.addWidget(ctrl.in_box)
-            v.addWidget(QLabel(l_out)); v.addWidget(ctrl.out_box); lay.addWidget(f)
+            ("Microphone path", "In your call app set Microphone to <b>CABLE-A Output</b>", mic, "Your microphone", "Send cleaned voice to (virtual cable input)"),
+            ("Speaker path", "In your call app set Speaker to <b>CABLE-B Input</b>", spk, "Call audio from (virtual cable output)", "Your headphones")):
+            f, v = section(title, hint)
+            for text, box in ((l_in, ctrl.in_box), (l_out, ctrl.out_box)):
+                c = QLabel(text.upper()); c.setObjectName("caps"); v.addSpacing(2); v.addWidget(c); v.addWidget(box)
+            lay.addWidget(f)
+        f, v = section("Hearing yourself or an echo?")
+        tips = QLabel("1. In Windows Sound settings, open the <b>Recording</b> tab, right-click <b>CABLE-A Output</b>, choose "
+                      "Properties, then <b>Listen</b>, and make sure <i>Listen to this device</i> is off.<br>"
+                      "2. Your call app must use <b>CABLE-A Output</b> as its microphone and <b>CABLE-B Input</b> as its speaker.<br>"
+                      "3. Wear a headset. With loudspeakers, your microphone picks the other person up and sends it back as an echo.")
+        tips.setObjectName("muted"); tips.setWordWrap(True); v.addWidget(tips); lay.addWidget(f)
         row = QHBoxLayout()
-        rb = QPushButton("Refresh devices"); rb.setObjectName("plain")
-        rb.clicked.connect(lambda: (mic.refresh(), spk.refresh()))
-        dl = QPushButton("Get VB-Audio Virtual Cable"); dl.setObjectName("plain")
-        dl.clicked.connect(lambda: webbrowser.open("https://vb-audio.com/Cable/"))
+        rb = QPushButton("Refresh devices"); rb.setObjectName("plain"); rb.clicked.connect(lambda: (mic.refresh(), spk.refresh()))
+        dl = QPushButton("Get VB-Audio Virtual Cable"); dl.setObjectName("plain"); dl.clicked.connect(lambda: webbrowser.open("https://vb-audio.com/Cable/"))
         row.addWidget(rb); row.addWidget(dl); row.addStretch(1); lay.addLayout(row); lay.addStretch(1)
 
 
@@ -345,31 +334,26 @@ class SettingsPage(QWidget):
     def __init__(self, win: "MainWindow"):
         super().__init__()
         s = win.settings
-        lay = QVBoxLayout(self); lay.setContentsMargins(14, 14, 14, 14); lay.setSpacing(12)
-        f = QFrame(); f.setObjectName("card"); v = QVBoxLayout(f); v.setContentsMargins(16, 12, 16, 14); v.setSpacing(10)
-        t = QLabel("General"); t.setObjectName("ptitle"); v.addWidget(t)
-        for text, attr in (("Start NoMsindo when Windows starts", "run_at_login"),
-                           ("Start minimized to the tray", "start_minimized"),
+        lay = QVBoxLayout(self); lay.setContentsMargins(18, 16, 18, 16); lay.setSpacing(12)
+        f, v = section("General")
+        for text, attr in (("Start NoMsindo when Windows starts", "run_at_login"), ("Start minimized to the tray", "start_minimized"),
                            ("Start audio automatically on launch", "autostart_audio"),
                            ("Keep running in the tray when the window is closed", "close_to_tray")):
-            cb = QCheckBox(text); cb.setChecked(getattr(s, attr))
-            cb.toggled.connect(lambda on, a=attr: win.set_option(a, on)); v.addWidget(cb)
+            cb = QCheckBox(text); cb.setChecked(getattr(s, attr)); cb.toggled.connect(lambda on, a=attr: win.set_option(a, on)); v.addWidget(cb)
         lay.addWidget(f)
-        acct = QFrame(); acct.setObjectName("card"); av = QVBoxLayout(acct); av.setContentsMargins(16, 12, 16, 14); av.setSpacing(6)
-        at = QLabel("Account"); at.setObjectName("ptitle"); av.addWidget(at)
+        acct, av = section("Account")
         self.acct_info = QLabel(); self.acct_info.setObjectName("muted"); self.acct_info.setWordWrap(True); av.addWidget(self.acct_info)
         so = QPushButton("Sign out of this computer"); so.setObjectName("plain"); so.clicked.connect(win.sign_out)
-        av.addWidget(so, 0, Qt.AlignLeft); lay.addWidget(acct)
-        win.lic_widgets.append(self.acct_info)
-        a = QFrame(); a.setObjectName("card"); h = QHBoxLayout(a); h.setContentsMargins(16, 12, 16, 12); h.setSpacing(16)
-        pm = QPixmap(res("assets/logo_tile.png"))
-        logo = QLabel(); logo.setPixmap(pm.scaledToWidth(130, Qt.SmoothTransformation)); h.addWidget(logo)
-        txt = QVBoxLayout()
-        n = QLabel(f"NoMsindo {__version__}"); n.setObjectName("ptitle")
+        av.addWidget(so, 0, Qt.AlignLeft); lay.addWidget(acct); win.lic_widgets.append(self.acct_info)
+        a, ah = section("About")
+        row = QHBoxLayout(); row.setSpacing(18)
+        logo = QLabel(); pm = QPixmap(res("assets/logo_tile.png")).scaledToWidth(240, Qt.SmoothTransformation); logo.setPixmap(pm)
+        row.addWidget(logo)
+        txt = QVBoxLayout(); n = QLabel(f"NoMsindo {__version__}"); n.setObjectName("ptitle")
         d = QLabel("Real-time AI voice isolation for calls.\nNoise removal by RNNoise (BSD licence).\n"
                    "Virtual audio routing via VB-Audio Virtual Cable.")
-        d.setObjectName("muted"); txt.addWidget(n); txt.addWidget(d); txt.addStretch(1); h.addLayout(txt, 1)
-        lay.addWidget(a); lay.addStretch(1)
+        d.setObjectName("muted"); txt.addWidget(n); txt.addWidget(d); txt.addStretch(1); row.addLayout(txt, 1)
+        ah.addLayout(row); lay.addWidget(a); lay.addStretch(1)
 
 
 def set_run_at_login(on: bool) -> None:
@@ -378,7 +362,7 @@ def set_run_at_login(on: bool) -> None:
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0, winreg.KEY_SET_VALUE)
         if on:
             exe = sys.executable if getattr(sys, "frozen", False) else f'"{sys.executable}" "{os.path.abspath(sys.argv[0])}"'
-            winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, f'{exe} --minimized')
+            winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, f"{exe} --minimized")
         else:
             try:
                 winreg.DeleteValue(key, APP_NAME)
@@ -397,23 +381,21 @@ class ActivationDialog(QDialog):
     def __init__(self, client: LicenceClient, message: str = ""):
         super().__init__()
         self.client = client
-        self.setWindowTitle("Sign in to NoMsindo"); self.setWindowIcon(app_icon()); self.setMinimumWidth(420)
-        lay = QVBoxLayout(self); lay.setContentsMargins(24, 22, 24, 20); lay.setSpacing(8)
-        head = QHBoxLayout()
-        ic = QLabel(); ic.setPixmap(QPixmap(res("assets/icon_48.png")).scaled(40, 40, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        t = QLabel("Sign in to NoMsindo"); t.setObjectName("appname")
-        head.addWidget(ic); head.addWidget(t, 1); lay.addLayout(head)
+        self.setWindowTitle("Sign in to NoMsindo"); self.setWindowIcon(app_icon()); self.setMinimumWidth(440)
+        lay = QVBoxLayout(self); lay.setContentsMargins(26, 24, 26, 22); lay.setSpacing(8)
+        head = QHBoxLayout(); ic = QLabel(); ic.setPixmap(brand_pixmap(44))
+        t = QLabel("Sign in to NoMsindo"); t.setObjectName("appname"); t.setStyleSheet("font-size: 20px;")
+        head.addWidget(ic); head.addSpacing(6); head.addWidget(t, 1); lay.addLayout(head)
         self.msg = QLabel(message or "Use the email and password your administrator gave you."); self.msg.setObjectName("muted"); self.msg.setWordWrap(True)
         lay.addWidget(self.msg)
-        lay.addWidget(QLabel("Server address")); self.server = QLineEdit(client.server or "https://"); lay.addWidget(self.server)
-        lay.addWidget(QLabel("Email")); self.email = QLineEdit(); lay.addWidget(self.email)
-        lay.addWidget(QLabel("Password")); self.pw = QLineEdit(); self.pw.setEchoMode(QLineEdit.Password); lay.addWidget(self.pw)
+        for label, attr, widget in (("SERVER ADDRESS", "server", QLineEdit(client.server or "https://")), ("EMAIL", "email", QLineEdit()),
+                                    ("PASSWORD", "pw", QLineEdit())):
+            c = QLabel(label); c.setObjectName("caps"); lay.addSpacing(2); lay.addWidget(c); lay.addWidget(widget); setattr(self, attr, widget)
+        self.pw.setEchoMode(QLineEdit.Password)
         self.err = QLabel(""); self.err.setObjectName("err"); self.err.setWordWrap(True); lay.addWidget(self.err)
-        row = QHBoxLayout()
-        trial = QPushButton("Start a free trial"); trial.setObjectName("plain")
+        row = QHBoxLayout(); trial = QPushButton("Start a free trial"); trial.setObjectName("plain")
         trial.clicked.connect(lambda: webbrowser.open(self.server.text().strip().rstrip("/") + "/signup"))
-        self.go = QPushButton("Sign in"); self.go.setObjectName("plain"); self.go.setDefault(True)
-        self.go.clicked.connect(self.submit)
+        self.go = QPushButton("Sign in"); self.go.setObjectName("plain"); self.go.setDefault(True); self.go.clicked.connect(self.submit)
         row.addWidget(trial); row.addStretch(1); row.addWidget(self.go); lay.addLayout(row)
         self.pw.returnPressed.connect(self.submit)
 
@@ -444,43 +426,46 @@ class MainWindow(QMainWindow):
         self._last = time.monotonic(); self._last_flush = time.monotonic(); self._last_refresh = 0.0
         self.mic = ChannelController(self.settings.mic, "mic", "mic")
         self.spk = ChannelController(self.settings.speaker, "speaker", "speaker")
+        self.mic.other, self.spk.other = self.spk, self.mic
         self.ctrls = [self.mic, self.spk]
 
-        root = QWidget(); root.setObjectName("root"); self.setCentralWidget(root)
+        root = Backdrop(); self.setCentralWidget(root)
         outer = QVBoxLayout(root); outer.setContentsMargins(0, 0, 0, 0); outer.setSpacing(0)
 
-        head = QHBoxLayout(); head.setContentsMargins(16, 10, 16, 10)
-        ic = QLabel(); ic.setPixmap(QPixmap(res("assets/icon_48.png")).scaled(34, 34, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        nm = QLabel("NoMsindo"); nm.setObjectName("appname")
+        head = QHBoxLayout(); head.setContentsMargins(20, 14, 22, 12); head.setSpacing(0)
+        ic = QLabel(); ic.setPixmap(brand_pixmap(46))
+        names = QVBoxLayout(); names.setSpacing(0); names.setContentsMargins(0, 0, 0, 0)
+        nm = QLabel("NoMsindo"); nm.setObjectName("appname"); tg = QLabel("VOICE ISOLATION"); tg.setObjectName("tagline")
+        names.addWidget(nm); names.addWidget(tg)
+        self.lic = QLabel(); self.lic.setObjectName("chip")
         self.pill = QLabel("ACTIVE"); self.pill.setObjectName("pill")
-        self.lic = QLabel(); self.lic.setObjectName("lic")
-        head.addWidget(ic); head.addSpacing(6); head.addWidget(nm); head.addStretch(1); head.addWidget(self.lic); head.addWidget(self.pill)
+        head.addWidget(ic); head.addSpacing(12); head.addLayout(names); head.addStretch(1)
+        head.addWidget(self.lic); head.addSpacing(10); head.addWidget(self.pill)
         outer.addLayout(head)
 
         body = QHBoxLayout(); body.setSpacing(0)
-        side = QFrame(); side.setObjectName("sidebar"); side.setFixedWidth(84)
-        sl = QVBoxLayout(side); sl.setContentsMargins(0, 10, 0, 0); sl.setSpacing(2)
+        side = QFrame(); side.setObjectName("sidebar"); side.setFixedWidth(92)
+        sl = QVBoxLayout(side); sl.setContentsMargins(0, 12, 0, 12); sl.setSpacing(4)
         self.pages = QStackedWidget()
-        routing = QWidget(); rl = QVBoxLayout(routing); rl.setContentsMargins(14, 14, 14, 14); rl.setSpacing(12)
-        self.panels = [ChannelPanel(c) for c in self.ctrls]
+        routing = QWidget(); rl = QVBoxLayout(routing); rl.setContentsMargins(18, 16, 18, 16); rl.setSpacing(14)
+        self.panels = [ChannelPanel(self.mic, "Microphone", "mic"), ChannelPanel(self.spk, "Speaker", "spk")]
         for p in self.panels:
             rl.addWidget(p, 1)
-        self.pages.addWidget(routing)
-        self.pages.addWidget(DevicesPage(self.mic, self.spk, devices.virtual_cable_present))
-        self.pages.addWidget(SettingsPage(self))
-        grp = QButtonGroup(self)
+        self.pages.addWidget(self._scroll(routing))
+        self.pages.addWidget(self._scroll(DevicesPage(self.mic, self.spk)))
+        self.pages.addWidget(self._scroll(SettingsPage(self)))
+        self.nav = []
         for i, (label, kind) in enumerate((("Audio\nRouting", "routing"), ("Devices", "devices"), ("Settings", "settings"))):
-            b = QToolButton(); b.setObjectName("nav"); b.setText(label); b.setCheckable(True)
-            b.setIcon(nav_icon(kind, "#9fe8d6")); b.setIconSize(b.iconSize() * 1.0)
-            b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon); b.setFixedHeight(76); b.setFixedWidth(84)
-            b.clicked.connect(lambda _, i=i: self.pages.setCurrentIndex(i)); grp.addButton(b); sl.addWidget(b)
-            if i == 0:
-                b.setChecked(True)
+            b = QToolButton(); b.setObjectName("nav"); b.setText(label); b.setCheckable(True); b.setAutoExclusive(True)
+            b.setIcon(nav_icon(kind)); b.setIconSize(b.iconSize() * 1.0); b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+            b.setFixedSize(92, 78); b.clicked.connect(lambda _, i=i: self.pages.setCurrentIndex(i)); sl.addWidget(b); self.nav.append(b)
+        self.nav[0].setChecked(True)
         sl.addStretch(1)
+        ver = QLabel(f"v{__version__}"); ver.setObjectName("muted"); ver.setAlignment(Qt.AlignCenter); sl.addWidget(ver)
         body.addWidget(side); body.addWidget(self.pages, 1); outer.addLayout(body, 1)
 
-        sb = QFrame(); sb.setObjectName("statusbar"); sbl = QHBoxLayout(sb); sbl.setContentsMargins(14, 6, 10, 6)
-        self.status = QLabel(); self.status.setObjectName("status")
+        sb = QFrame(); sb.setObjectName("statusbar"); sbl = QHBoxLayout(sb); sbl.setContentsMargins(18, 7, 12, 7)
+        self.status = QLabel(); self.status.setObjectName("status"); self.status.setTextFormat(Qt.RichText)
         dl = QPushButton("VB-Audio"); dl.setObjectName("link"); dl.clicked.connect(lambda: webbrowser.open("https://vb-audio.com/Cable/"))
         sbl.addWidget(self.status, 1); sbl.addWidget(dl); outer.addWidget(sb)
 
@@ -488,9 +473,19 @@ class MainWindow(QMainWindow):
             c.changed.connect(self.refresh_status)
         self.refresh_status()
         self.timer = QTimer(self); self.timer.timeout.connect(self._tick); self.timer.start(33)
-        self._tray(); self.resize(760, 700); self.setMinimumSize(700, 640)
+        self._tray(); self.resize(840, 840); self.setMinimumSize(760, 620)
         self.update_licence_ui()
         self.lic_timer = QTimer(self); self.lic_timer.timeout.connect(self.check_licence); self.lic_timer.start(60_000)
+
+    @staticmethod
+    def _scroll(w: QWidget) -> QScrollArea:
+        sa = QScrollArea(); sa.setWidgetResizable(True); sa.setFrameShape(QFrame.NoFrame)
+        sa.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff); sa.setWidget(w)
+        sa.viewport().setAutoFillBackground(False); w.setAutoFillBackground(False)
+        return sa
+
+    def showEvent(self, e) -> None:
+        super().showEvent(e); dark_titlebar(self)
 
     # ---- state
     def set_option(self, attr: str, on: bool) -> None:
@@ -500,19 +495,21 @@ class MainWindow(QMainWindow):
         self.settings.save()
 
     def refresh_status(self) -> None:
+        dot = lambda ok, warn=False: f"<span style='color:{MINT if ok else (AMBER if warn else RED)}'>●</span>"
         try:
-            engine = "RNNoise Engine OK (10ms Chunks)"
             from .engine import FRAME
-            assert FRAME == 480
+            eng_ok = FRAME == 480
         except Exception:
-            engine = "RNNoise Engine ERROR"
+            eng_ok = False
         try:
-            cable = "VB-Audio Cable Connected" if devices.virtual_cable_present() else "VB-Audio Cable not found"
+            cable_ok = devices.virtual_cable_present()
         except Exception:
-            cable = "VB-Audio Cable not found"
+            cable_ok = False
         run = any(c.running for c in self.ctrls)
-        self.status.setText(f"{'Running' if run else 'Ready'} | {engine} | {cable}")
-        self.pill.setText("ACTIVE" if run else "IDLE"); self.pill.setProperty("idle", not run)
+        self.status.setText(f"{dot(True) if run else dot(True, True)} {'Running' if run else 'Ready'} &nbsp;&nbsp;│&nbsp;&nbsp; "
+                            f"{dot(eng_ok)} RNNoise engine {'OK' if eng_ok else 'error'} (10 ms chunks) &nbsp;&nbsp;│&nbsp;&nbsp; "
+                            f"{dot(cable_ok)} VB-Audio cable {'connected' if cable_ok else 'not found'}")
+        self.pill.setText(f"●  {'ACTIVE' if run else 'IDLE'}"); self.pill.setProperty("idle", not run)
         self.pill.style().unpolish(self.pill); self.pill.style().polish(self.pill)
 
     def _tick(self) -> None:
@@ -530,16 +527,17 @@ class MainWindow(QMainWindow):
     # ---- licence
     def update_licence_ui(self) -> None:
         if self.dev_mode:
-            self.lic.setText("Developer mode"); text = "Developer mode: licence checks are off."
+            self.lic.setText("Developer mode"); text = "Developer mode: licence checks are off."; warn = False
         else:
             st = self.licence.state()
             if st.status == "ok":
                 kind = "Trial" if st.plan == "trial" else "Subscription"
-                self.lic.setText(f"{st.org_name} · {kind} · {st.days_left} day{'' if st.days_left == 1 else 's'} left")
+                self.lic.setText(f"{st.org_name}  ·  {kind}  ·  {st.days_left} day{'' if st.days_left == 1 else 's'} left")
                 text = f"Signed in as {st.email} ({st.org_name}). {kind}, {st.days_left} days left."
             else:
                 self.lic.setText("Not signed in"); text = st.message or "Not signed in."
-            self.lic.setProperty("warn", st.status != "ok" or (st.plan == "trial" and st.days_left <= 3))
+            warn = st.status != "ok" or (st.plan == "trial" and st.days_left <= 3)
+        self.lic.setProperty("warn", warn)
         self.lic.style().unpolish(self.lic); self.lic.style().polish(self.lic)
         for w in self.lic_widgets:
             w.setText(text)
@@ -548,7 +546,6 @@ class MainWindow(QMainWindow):
         """Block until licensed. Returns False if the user gives up."""
         if self.dev_mode:
             return True
-        msg = ""
         while True:
             st = self.licence.state()
             if st.status == "ok":
@@ -557,7 +554,8 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(None, APP_NAME, st.message); return False
             for c in self.ctrls:
                 c.stop()
-            dlg = ActivationDialog(self.licence, st.message if st.status != "needs_signin" or st.org_name else msg)
+            dlg = ActivationDialog(self.licence, st.message)
+            dark_titlebar(dlg)
             if dlg.exec() != QDialog.Accepted:
                 return False
 
@@ -597,7 +595,7 @@ class MainWindow(QMainWindow):
         with self._usage_lock:
             mic, spk = int(self._usage["mic"]), int(self._usage["speaker"])
             self._usage["mic"] -= mic; self._usage["speaker"] -= spk
-        if mic <= 0 and spk <= 0 or self.dev_mode:
+        if (mic <= 0 and spk <= 0) or self.dev_mode:
             return
         def work():
             if not self.licence.report_usage(mic, spk):      # put it back and retry next time

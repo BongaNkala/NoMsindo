@@ -72,6 +72,10 @@ class Pipeline:
         self._pk_in = 0.0
         self._pk_out = 0.0
 
+    @property
+    def speech_prob(self) -> float:
+        return self.denoiser.speech_prob if self.status == "running" else 0.0
+
     def take_peaks(self):
         """Peak amplitudes (0..1) since the last call, for the waveform display."""
         a, b = self._pk_in, self._pk_out
