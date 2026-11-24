@@ -1,0 +1,7 @@
+{% extends "base.html" %}{% block title %}Devices{% endblock %}
+{% block body %}<h1>Devices</h1><p class="muted">Computers where NoMsindo is signed in. Removing a device frees its slot.</p>
+<div class="card">{% if devices %}<table><tr><th>User</th><th>Computer</th><th>Registered</th><th>Last seen (UTC)</th><th>Status</th><th></th></tr>
+{% for d in devices %}<tr><td>{{ d.user.email }}</td><td>{{ d.name or 'Unnamed' }}</td><td>{{ d.created_at.strftime('%d %b %Y') }}</td><td>{{ d.last_seen.strftime('%d %b %H:%M') }}</td>
+<td><span class="pill {{ 'off' if d.revoked else '' }}">{{ 'Removed' if d.revoked else 'Active' }}</span></td>
+<td>{% if not d.revoked %}<form class="inline" method="post" action="/devices/{{ d.id }}/revoke"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="danger" type="submit">Remove</button></form>{% endif %}</td></tr>{% endfor %}</table>
+{% else %}<p class="muted">No devices yet. Agents appear here after signing in to the NoMsindo app.</p>{% endif %}</div>{% endblock %}

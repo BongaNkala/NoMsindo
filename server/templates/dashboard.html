@@ -1,0 +1,20 @@
+{% extends "base.html" %}{% block title %}Dashboard{% endblock %}
+{% block body %}<h1>{{ org.name }}</h1><p class="muted">Overview of your NoMsindo licence and usage.</p>
+<div class="grid">
+<div class="card stat"><div class="l">Plan</div><div class="v">{{ 'Subscription' if org.plan=='paid' else 'Free trial' }}</div>
+<span class="pill {{ '' if org.days_left>7 else 'warn' }}">{{ org.days_left }} day{{ '' if org.days_left==1 else 's' }} left</span>
+<div class="muted">until {{ org.licence_until.strftime('%d %b %Y') }}</div></div>
+<div class="card stat"><div class="l">Seats used</div><div class="v">{{ seats_used }} / {{ org.seats }}</div><a href="/users">Manage users</a></div>
+<div class="card stat"><div class="l">Active devices</div><div class="v">{{ devices }}</div><a href="/devices">View devices</a></div>
+<div class="card stat"><div class="l">Minutes cleaned (30 days)</div><div class="v">{{ '{:,}'.format(total30) }}</div><a href="/usage">Usage by user</a></div>
+</div>
+{% if not org.is_licensed %}<div class="flash err">Your trial or subscription has ended. NoMsindo has stopped working for your agents. Contact Thee Landlord Digital Solutions to subscribe.</div>{% endif %}
+<div class="card"><h2>Minutes cleaned, last 14 days</h2>
+<svg class="chart" viewBox="0 0 420 140" preserveAspectRatio="none" role="img" aria-label="Minutes cleaned per day">
+{% for s in series %}{% set h = (s.minutes / max_min * 110) %}
+<rect x="{{ loop.index0 * 30 + 4 }}" y="{{ 120 - h }}" width="22" height="{{ h }}" rx="3" fill="#19e3a1" opacity="{{ 0.35 + 0.65 * (s.minutes / max_min) }}"><title>{{ s.day.strftime('%d %b') }}: {{ s.minutes }} min</title></rect>
+{% if loop.index0 % 2 == 0 %}<text x="{{ loop.index0 * 30 + 15 }}" y="136" font-size="8" fill="#7fa3a0" text-anchor="middle">{{ s.day.strftime('%d/%m') }}</text>{% endif %}{% endfor %}
+</svg><p class="muted">Usage figures count processing time only. NoMsindo never stores or uploads audio or call content.</p></div>
+<div class="card"><h2>Recent activity</h2>{% if recent %}<table><tr><th>When (UTC)</th><th>Who</th><th>Action</th><th>Detail</th></tr>
+{% for a in recent %}<tr><td>{{ a.created_at.strftime('%d %b %H:%M') }}</td><td>{{ a.actor }}</td><td>{{ a.action }}</td><td>{{ a.detail }}</td></tr>{% endfor %}</table>
+{% else %}<p class="muted">Nothing yet.</p>{% endif %}</div>{% endblock %}

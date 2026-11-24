@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% block title %}Sign in{% endblock %}
+{% block auth %}<div class="card"><h2>Sign in to the admin portal</h2>
+{% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+<form method="post" action="/login"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Email</label><input name="email" type="email" value="{{ email or '' }}" required autofocus>
+<label>Password</label><input name="password" type="password" required>
+<p><button type="submit">Sign in</button></p></form>
+<p class="muted">New organisation? <a href="/signup">Start a free {{ config.TRIAL_DAYS }}-day trial</a></p></div>{% endblock %}

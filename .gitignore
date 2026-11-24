@@ -4,3 +4,10 @@ build/
 dist/
 Output/
 .pytest_cache/
+
+server_data/
+*.db
+*.pem
+!assets/license_public.pem
+secret.key
+.env

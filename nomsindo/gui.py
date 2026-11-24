@@ -3,18 +3,21 @@ from __future__ import annotations
 import os
 import re
 import sys
+import threading
+import time
 import webbrowser
 from collections import deque
 
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (QAction, QBrush, QColor, QIcon, QLinearGradient, QPainter, QPen,
                            QPixmap)
-from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QComboBox, QFrame,
+from PySide6.QtWidgets import (QApplication, QDialog, QLineEdit, QMessageBox, QButtonGroup, QCheckBox, QComboBox, QFrame,
                                QHBoxLayout, QLabel, QMainWindow, QMenu, QPushButton, QSlider,
                                QStackedWidget, QSystemTrayIcon, QToolButton, QVBoxLayout, QWidget)
 
 from . import APP_NAME, __version__, devices
 from .config import Channel, Settings
+from .licensing import LicenceClient, LicenceError
 from .pipeline import Pipeline
 
 GREEN, TEAL, TEXT, MUTED = "#19e3a1", "#1fc8c0", "#dff3f0", "#7fa3a0"
@@ -49,6 +52,11 @@ QPushButton#link {{ background: #16282b; border: 1px solid #2b4448; border-radiu
 QPushButton#link:hover {{ background: #1f3a3e; }}
 QPushButton#plain {{ background: #1b3a3d; border: 1px solid #2f5a5e; border-radius: 8px; padding: 7px 14px; }}
 QPushButton#plain:hover {{ background: #24494d; }}
+QLineEdit {{ background: #0b1517; border: 1px solid #2b4448; border-radius: 6px; padding: 7px 9px; }}
+QDialog {{ background: #0f1e21; }}
+QLabel#lic {{ color: {MUTED}; border: 1px solid #2b4448; border-radius: 10px; padding: 3px 12px; margin-right: 10px; }}
+QLabel#lic[warn="true"] {{ color: #ffb020; border-color: #ffb020; }}
+QLabel#err {{ color: #ff8a8a; }}
 QComboBox {{ background: #0b1517; border: 1px solid #2b4448; border-radius: 6px; padding: 6px 8px; }}
 QComboBox QAbstractItemView {{ background: #0b1517; selection-background-color: #1f6f66; border: 1px solid #2b4448; }}
 QCheckBox {{ spacing: 8px; }}
@@ -347,6 +355,12 @@ class SettingsPage(QWidget):
             cb = QCheckBox(text); cb.setChecked(getattr(s, attr))
             cb.toggled.connect(lambda on, a=attr: win.set_option(a, on)); v.addWidget(cb)
         lay.addWidget(f)
+        acct = QFrame(); acct.setObjectName("card"); av = QVBoxLayout(acct); av.setContentsMargins(16, 12, 16, 14); av.setSpacing(6)
+        at = QLabel("Account"); at.setObjectName("ptitle"); av.addWidget(at)
+        self.acct_info = QLabel(); self.acct_info.setObjectName("muted"); self.acct_info.setWordWrap(True); av.addWidget(self.acct_info)
+        so = QPushButton("Sign out of this computer"); so.setObjectName("plain"); so.clicked.connect(win.sign_out)
+        av.addWidget(so, 0, Qt.AlignLeft); lay.addWidget(acct)
+        win.lic_widgets.append(self.acct_info)
         a = QFrame(); a.setObjectName("card"); h = QHBoxLayout(a); h.setContentsMargins(16, 12, 16, 12); h.setSpacing(16)
         pm = QPixmap(res("assets/logo_tile.png"))
         logo = QLabel(); logo.setPixmap(pm.scaledToWidth(130, Qt.SmoothTransformation)); h.addWidget(logo)
@@ -375,11 +389,59 @@ def set_run_at_login(on: bool) -> None:
         pass
 
 
+class Bus(QObject):
+    licence = Signal()
+
+
+class ActivationDialog(QDialog):
+    def __init__(self, client: LicenceClient, message: str = ""):
+        super().__init__()
+        self.client = client
+        self.setWindowTitle("Sign in to NoMsindo"); self.setWindowIcon(app_icon()); self.setMinimumWidth(420)
+        lay = QVBoxLayout(self); lay.setContentsMargins(24, 22, 24, 20); lay.setSpacing(8)
+        head = QHBoxLayout()
+        ic = QLabel(); ic.setPixmap(QPixmap(res("assets/icon_48.png")).scaled(40, 40, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        t = QLabel("Sign in to NoMsindo"); t.setObjectName("appname")
+        head.addWidget(ic); head.addWidget(t, 1); lay.addLayout(head)
+        self.msg = QLabel(message or "Use the email and password your administrator gave you."); self.msg.setObjectName("muted"); self.msg.setWordWrap(True)
+        lay.addWidget(self.msg)
+        lay.addWidget(QLabel("Server address")); self.server = QLineEdit(client.server or "https://"); lay.addWidget(self.server)
+        lay.addWidget(QLabel("Email")); self.email = QLineEdit(); lay.addWidget(self.email)
+        lay.addWidget(QLabel("Password")); self.pw = QLineEdit(); self.pw.setEchoMode(QLineEdit.Password); lay.addWidget(self.pw)
+        self.err = QLabel(""); self.err.setObjectName("err"); self.err.setWordWrap(True); lay.addWidget(self.err)
+        row = QHBoxLayout()
+        trial = QPushButton("Start a free trial"); trial.setObjectName("plain")
+        trial.clicked.connect(lambda: webbrowser.open(self.server.text().strip().rstrip("/") + "/signup"))
+        self.go = QPushButton("Sign in"); self.go.setObjectName("plain"); self.go.setDefault(True)
+        self.go.clicked.connect(self.submit)
+        row.addWidget(trial); row.addStretch(1); row.addWidget(self.go); lay.addLayout(row)
+        self.pw.returnPressed.connect(self.submit)
+
+    def submit(self) -> None:
+        self.err.setText(""); self.go.setEnabled(False); self.go.setText("Signing in...")
+        QApplication.setOverrideCursor(Qt.WaitCursor); QApplication.processEvents()
+        try:
+            st = self.client.sign_in(self.server.text(), self.email.text().strip(), self.pw.text())
+            if st.status == "ok":
+                self.accept(); return
+            self.err.setText(st.message)
+        except LicenceError as e:
+            self.err.setText(e.message)
+        finally:
+            QApplication.restoreOverrideCursor(); self.go.setEnabled(True); self.go.setText("Sign in")
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(APP_NAME); self.setWindowIcon(app_icon())
         self.settings = Settings.load()
+        self.dev_mode = os.environ.get("NOMSINDO_DEV") == "1"
+        self.licence = LicenceClient()
+        self.lic_widgets: list = []
+        self.bus = Bus(); self.bus.licence.connect(self.on_licence_changed)
+        self._usage = {"mic": 0.0, "speaker": 0.0}; self._usage_lock = threading.Lock()
+        self._last = time.monotonic(); self._last_flush = time.monotonic(); self._last_refresh = 0.0
         self.mic = ChannelController(self.settings.mic, "mic", "mic")
         self.spk = ChannelController(self.settings.speaker, "speaker", "speaker")
         self.ctrls = [self.mic, self.spk]
@@ -391,7 +453,8 @@ class MainWindow(QMainWindow):
         ic = QLabel(); ic.setPixmap(QPixmap(res("assets/icon_48.png")).scaled(34, 34, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         nm = QLabel("NoMsindo"); nm.setObjectName("appname")
         self.pill = QLabel("ACTIVE"); self.pill.setObjectName("pill")
-        head.addWidget(ic); head.addSpacing(6); head.addWidget(nm); head.addStretch(1); head.addWidget(self.pill)
+        self.lic = QLabel(); self.lic.setObjectName("lic")
+        head.addWidget(ic); head.addSpacing(6); head.addWidget(nm); head.addStretch(1); head.addWidget(self.lic); head.addWidget(self.pill)
         outer.addLayout(head)
 
         body = QHBoxLayout(); body.setSpacing(0)
@@ -426,6 +489,8 @@ class MainWindow(QMainWindow):
         self.refresh_status()
         self.timer = QTimer(self); self.timer.timeout.connect(self._tick); self.timer.start(33)
         self._tray(); self.resize(760, 700); self.setMinimumSize(700, 640)
+        self.update_licence_ui()
+        self.lic_timer = QTimer(self); self.lic_timer.timeout.connect(self.check_licence); self.lic_timer.start(60_000)
 
     # ---- state
     def set_option(self, attr: str, on: bool) -> None:
@@ -451,9 +516,96 @@ class MainWindow(QMainWindow):
         self.pill.style().unpolish(self.pill); self.pill.style().polish(self.pill)
 
     def _tick(self) -> None:
+        now = time.monotonic(); dt = min(1.0, now - self._last); self._last = now
+        for key, c in (("mic", self.mic), ("speaker", self.spk)):
+            if c.running:
+                with self._usage_lock:
+                    self._usage[key] += dt
+        if now - self._last_flush > 300:
+            self._last_flush = now; self.flush_usage()
         if self.isVisible() and not self.isMinimized():
             for p in self.panels:
                 p.tick()
+
+    # ---- licence
+    def update_licence_ui(self) -> None:
+        if self.dev_mode:
+            self.lic.setText("Developer mode"); text = "Developer mode: licence checks are off."
+        else:
+            st = self.licence.state()
+            if st.status == "ok":
+                kind = "Trial" if st.plan == "trial" else "Subscription"
+                self.lic.setText(f"{st.org_name} · {kind} · {st.days_left} day{'' if st.days_left == 1 else 's'} left")
+                text = f"Signed in as {st.email} ({st.org_name}). {kind}, {st.days_left} days left."
+            else:
+                self.lic.setText("Not signed in"); text = st.message or "Not signed in."
+            self.lic.setProperty("warn", st.status != "ok" or (st.plan == "trial" and st.days_left <= 3))
+        self.lic.style().unpolish(self.lic); self.lic.style().polish(self.lic)
+        for w in self.lic_widgets:
+            w.setText(text)
+
+    def ensure_licence(self) -> bool:
+        """Block until licensed. Returns False if the user gives up."""
+        if self.dev_mode:
+            return True
+        msg = ""
+        while True:
+            st = self.licence.state()
+            if st.status == "ok":
+                self.update_licence_ui(); return True
+            if st.status == "unconfigured":
+                QMessageBox.critical(None, APP_NAME, st.message); return False
+            for c in self.ctrls:
+                c.stop()
+            dlg = ActivationDialog(self.licence, st.message if st.status != "needs_signin" or st.org_name else msg)
+            if dlg.exec() != QDialog.Accepted:
+                return False
+
+    def check_licence(self) -> None:
+        if self.dev_mode:
+            return
+        st = self.licence.state()
+        if st.status != "ok":
+            self.bus.licence.emit(); return
+        if (st.needs_refresh or time.monotonic() - self._last_refresh > 6 * 3600) and time.monotonic() - self._last_refresh > 300:
+            self._last_refresh = time.monotonic()
+            def work():
+                try:
+                    self.licence.refresh()
+                except LicenceError:
+                    pass           # offline: keep running until the token's own expiry
+                self.bus.licence.emit()
+            threading.Thread(target=work, daemon=True).start()
+        self.update_licence_ui()
+
+    def on_licence_changed(self) -> None:
+        self.update_licence_ui()
+        if self.licence.state().status != "ok":
+            if not self.ensure_licence():
+                self.quit()
+
+    def sign_out(self) -> None:
+        if QMessageBox.question(self, APP_NAME, "Sign out of NoMsindo on this computer? Audio cleaning will stop.") == QMessageBox.Yes:
+            for c in self.ctrls:
+                c.stop()
+            self.flush_usage(wait=True)
+            self.licence.sign_out()
+            if not self.ensure_licence():
+                self.quit()
+
+    def flush_usage(self, wait: bool = False) -> None:
+        with self._usage_lock:
+            mic, spk = int(self._usage["mic"]), int(self._usage["speaker"])
+            self._usage["mic"] -= mic; self._usage["speaker"] -= spk
+        if mic <= 0 and spk <= 0 or self.dev_mode:
+            return
+        def work():
+            if not self.licence.report_usage(mic, spk):      # put it back and retry next time
+                with self._usage_lock:
+                    self._usage["mic"] += mic; self._usage["speaker"] += spk
+        t = threading.Thread(target=work, daemon=True); t.start()
+        if wait:
+            t.join(3)
 
     def auto_start(self) -> None:
         if self.settings.autostart_audio:
@@ -483,6 +635,7 @@ class MainWindow(QMainWindow):
     def quit(self) -> None:
         for c in self.ctrls:
             c.stop()
+        self.flush_usage(wait=True)
         self.settings.save(); self.tray.hide(); QApplication.quit()
 
 
@@ -490,6 +643,8 @@ def run() -> int:
     app = QApplication(sys.argv)
     app.setStyleSheet(STYLE); app.setWindowIcon(app_icon()); app.setQuitOnLastWindowClosed(False)
     w = MainWindow()
+    if not w.ensure_licence():
+        return 0
     if "--minimized" not in sys.argv and not w.settings.start_minimized:
         w.show()
     QTimer.singleShot(400, w.auto_start)

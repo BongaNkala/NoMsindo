@@ -9,9 +9,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt -r requirements-server.txt
       - run: pip install --no-deps pyrnnoise
       - run: python -m pytest -q
+      - name: Check licence public key is committed
+        shell: bash
+        run: test -f assets/license_public.pem || (echo "assets/license_public.pem missing: run 'python -m server.manage init' and commit it" && exit 1)
       - run: pyinstaller build.spec --noconfirm
       - run: choco install innosetup -y
       - run: iscc installer.iss

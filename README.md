@@ -34,9 +34,13 @@ audio path with live waveform (raw input left of the playhead, cleaned audio rig
 Noise Removal Strength slider, Standard/Strong mode and ACTIVE toggle, and a status bar.
 Logo and icon live in `assets/`.
 
+## SaaS server
+`server/` holds the licensing server and admin portal (accounts, trial, seats, devices, usage).
+See `server/README.md`. Run `python -m server.manage init` once and commit `assets/license_public.pem`
+before building the installer. For development without a server, set `NOMSINDO_DEV=1`.
+
 ## Status
-- Engine, routing, UI, installer scripts: written. Engine unit-tested on Linux.
+- Engine, routing, UI, installer scripts, licensing client and server: written. Engine, server and licence client are unit-tested on Linux (26 tests); client checked against the real server over HTTP.
 - Not yet tested on a real Windows machine with live audio devices.
 - Roadmap: spectrogram view, auto-select devices, licence/trial, admin portal, Chrome extension, SDK,
   stronger model (DeepFilterNet via ONNX), custom virtual audio driver.
-# NoMsindo

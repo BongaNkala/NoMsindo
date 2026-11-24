@@ -1,0 +1,10 @@
+{% extends "base.html" %}{% block title %}My account{% endblock %}
+{% block body %}<h1>My account</h1><p class="muted">{{ user.email }} · {{ org.name }}</p>
+<div class="card"><h2>Download NoMsindo</h2><p class="muted">Install the NoMsindo Windows app and sign in with this email and password.</p></div>
+<div class="card"><h2>My devices</h2>{% if devices %}<table><tr><th>Computer</th><th>Last seen (UTC)</th><th>Status</th></tr>
+{% for d in devices %}<tr><td>{{ d.name or 'Unnamed' }}</td><td>{{ d.last_seen.strftime('%d %b %H:%M') }}</td><td>{{ 'Removed' if d.revoked else 'Active' }}</td></tr>{% endfor %}</table>
+{% else %}<p class="muted">Not signed in on any computer yet.</p>{% endif %}</div>
+<div class="card"><h2>Change password</h2><form method="post" action="/account/password"><input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="row"><div><label>Current password</label><input name="current" type="password" required></div>
+<div><label>New password (10+ chars)</label><input name="new" type="password" minlength="10" required></div>
+<div style="flex:none"><button type="submit">Change</button></div></div></form></div>{% endblock %}

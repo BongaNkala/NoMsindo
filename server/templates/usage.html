@@ -1,0 +1,5 @@
+{% extends "base.html" %}{% block title %}Usage{% endblock %}
+{% block body %}<h1>Usage, last 30 days</h1><p class="muted">Minutes of audio cleaned by NoMsindo. Mic = the agent's voice; Speaker = what the agent hears. No audio or call content is stored.</p>
+<div class="card"><table><tr><th>User</th><th>Mic minutes</th><th>Speaker minutes</th><th>Days used</th></tr>
+{% for r in table %}<tr><td>{{ r.email }}</td><td>{{ '{:,}'.format(r.mic) }}</td><td>{{ '{:,}'.format(r.speaker) }}</td><td>{{ r.days }}</td></tr>{% endfor %}
+<tr><th>Total</th><th>{{ '{:,}'.format(total_mic) }}</th><th>{{ '{:,}'.format(total_spk) }}</th><th></th></tr></table></div>{% endblock %}

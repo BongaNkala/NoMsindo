@@ -1,0 +1,14 @@
+{% extends "base.html" %}{% block title %}Users{% endblock %}
+{% block body %}<h1>Users &amp; seats</h1><p class="muted">{{ seats_used }} of {{ org.seats }} seats in use. Each active user takes one seat and can sign in to NoMsindo on up to {{ config.MAX_DEVICES_PER_USER }} devices.</p>
+<div class="card"><h2>Add a user</h2><form method="post" action="/users"><input type="hidden" name="csrf" value="{{ csrf }}">
+<div class="row"><div><label>Email</label><input name="email" type="email" required></div>
+<div><label>Initial password (10+ chars)</label><input name="password" type="text" minlength="10" required autocomplete="off"></div>
+<div style="max-width:150px"><label>Role</label><select name="role"><option value="agent">Agent</option><option value="admin">Admin</option></select></div>
+<div style="flex:none"><button type="submit">Add user</button></div></div></form></div>
+<div class="card"><table><tr><th>Email</th><th>Role</th><th>Status</th><th>Last sign-in</th><th>Actions</th></tr>
+{% for u in users %}<tr><td>{{ u.email }}</td><td>{{ u.role }}</td>
+<td><span class="pill {{ '' if u.active else 'off' }}">{{ 'Active' if u.active else 'Deactivated' }}</span></td>
+<td>{{ u.last_login.strftime('%d %b %Y %H:%M') if u.last_login else '-' }}</td>
+<td><form class="inline" method="post" action="/users/{{ u.id }}/reset"><input type="hidden" name="csrf" value="{{ csrf }}"><input name="password" type="text" placeholder="new password" minlength="10" required autocomplete="off"><button class="sec" type="submit">Reset</button></form>
+{% if u.id != user.id and u.role != 'owner' %}<form class="inline" method="post" action="/users/{{ u.id }}/toggle"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="{{ 'danger' if u.active else 'sec' }}" type="submit">{{ 'Deactivate' if u.active else 'Reactivate' }}</button></form>{% endif %}</td></tr>{% endfor %}</table>
+<p class="muted">Deactivated users stop being able to use NoMsindo at their next licence check (within 24 hours).</p></div>{% endblock %}
